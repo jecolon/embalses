@@ -132,9 +132,12 @@ func main() {
 		urlFinal := fmt.Sprintf(USGS_URL, siteID, yesterday.Format("2006.1.2"), today.Format("2006.1.2"))
 
 		// Get data concurrently
+		httpClient := &http.Client{
+			Timeout: 1 * time.Minute,
+		}
 		wg.Add(1)
 		gophers++
-		go getSiteData(site, urlFinal, output)
+		go getSiteData(site, urlFinal, httpClient, output)
 	}
 
 	var buf bytes.Buffer
@@ -145,9 +148,9 @@ func main() {
 	wg.Wait()
 }
 
-func getSiteData(site []string, urlFinal string, output chan<- string) {
+func getSiteData(site []string, urlFinal string, httpClient *http.Client, output chan<- string) {
 	// Buscar datos
-	r, err := http.Get(urlFinal)
+	r, err := httpClient.Get(urlFinal)
 	chk(err)
 
 	// Convertirlos en slice
