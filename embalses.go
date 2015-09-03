@@ -115,7 +115,7 @@ func main() {
 	gophers := 0
 
 	for _, site := range sitesData {
-		// Stie name
+		// Site name
 		siteName := site[0]
 
 		// ¿Existe una lista específica de embalses?
