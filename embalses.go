@@ -21,47 +21,55 @@ Copyright 2015 Edwood Ocasio <edwood.ocasio@gmail.com>
 Ported to Go by Jose Colon <jec.rod@gmail.com>
 */
 
-//  embalsespr muestra cambio en nivel en ultimas 24 horas (aproximadamente)
+//  embalses muestra cambio en nivel en ultimas 24 horas (aproximadamente)
 package main
 
 import (
-	"bytes"
+	"encoding/csv"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	_ "os"
 	_ "runtime/pprof"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
-var wg sync.WaitGroup
+type embalse struct {
+	nombre      string
+	id          string
+	lat         float64
+	lng         float64
+	desborde    float64
+	seguridad   float64
+	observacion float64
+	ajuste      float64
+	control     float64
+	capacidad   float64
+	nivelPrevio float64
+	nivelActual float64
+	status      string
+}
 
-var header = `########################################################################
-#  embalsespr
-#  Muestra cambio en nivel en ultimas 24 horas (aproximadamente)
-#  Inspirado por http://mate.uprh.edu/embalsespr/
-#  8/27/2015
-#  Copyright 2015 Edwood Ocasio <edwood.ocasio@gmail.com>
-########################################################################
-# Datos provistos por el grupo CienciaDatosPR del Departamento de 
-# Matematicas de la Universidad de Puerto Rico en Humacao
-# Inspirado por http://mate.uprh.edu/embalsespr/
-#
-# Estos datos están sujetos a revisión por el USGS y no deben ser
-# tomados como oficiales o libres de errores de medición.
-########################################################################
+//var wg sync.WaitGroup
+
+var header = `
+#########################################################################
+# Muestra cambio en nivel en ultimas 24 horas (aproximadamente)		#
+# Versión Go de Edwood Ocasio's: https://github.com/eocasio/embalses	#
+# Inspirado por http://mate.uprh.edu/embalsespr/			#
+# Copyright 2015 Jose E. Colon <jec.rod@gmail.com>			#
+#########################################################################
+# Datos provistos por el grupo CienciaDatosPR del Departamento de 	#
+# Matematicas de la Universidad de Puerto Rico en Humacao		#
+# Estos datos están sujetos a revisión por el USGS y no deben ser	#
+# tomados como oficiales o libres de errores de medición.		#
+#########################################################################
 `
 
-/*
- Datos provistos por el grupo CienciaDatosPR del Departamento de
- Matemáticas de la Universidad de Puerto Rico en Humacao
- https://raw.githubusercontent.com/mecobi/EmbalsesPR/master/embalses.csv
-*/
-var sitesRawData = `Carite,50039995,18.07524,-66.10683,544,542,539,537,536,8320
+var sitesRawData = `
+Carite,50039995,18.07524,-66.10683,544,542,539,537,536,8320
 Carraizo,50059000,18.32791,-66.01628,41.14,39.5,38.5,36.5,30,12000
 La Plata,50045000,18.343,-66.23607,51,43,39,38,31,26516
 Cidra,50047550,18.1969,-66.14072,403.05,401.05,400.05,399.05,398.05,4480
@@ -71,7 +79,8 @@ Rio Blanco,50076800,18.22389,-65.78142,28.75,26.5,24.25,22.5,18,3795
 Caonillas,50026140,18.27654,-66.65642,252,248,244,242,235,31730
 Fajardo,50071225,18.2969,-65.65858,52.5,48.3,43.4,37.5,26,4430
 Guajataca,50010800,18.39836,-66.9227,196,194,190,186,184,33340
-Cerrillos,50113950,18.07703,-66.57547,173.4,160,155.5,149.4,137.2,42600`
+Cerrillos,50113950,18.07703,-66.57547,173.4,160,155.5,149.4,137.2,42600
+`
 
 func main() {
 	/*
@@ -81,10 +90,41 @@ func main() {
 		defer pprof.StopCPUProfile()
 	*/
 
-	sitesDataLines := strings.Split(sitesRawData, "\n")
-	sitesData := make([][]string, len(sitesDataLines))
-	for i, l := range sitesDataLines {
-		sitesData[i] = strings.Split(l, ",")
+	sitesDataReader := csv.NewReader(strings.NewReader(sitesRawData))
+	sitesData, err := sitesDataReader.ReadAll()
+	chk(err)
+	sites := make([]*embalse, len(sitesData))
+	for i := range sitesData {
+		site := sitesData[i]
+		lat, err := strconv.ParseFloat(site[2], 64)
+		chk(err)
+		lng, err := strconv.ParseFloat(site[3], 64)
+		chk(err)
+		desborde, err := strconv.ParseFloat(site[4], 64)
+		chk(err)
+		seguridad, err := strconv.ParseFloat(site[5], 64)
+		chk(err)
+		observacion, err := strconv.ParseFloat(site[6], 64)
+		chk(err)
+		ajuste, err := strconv.ParseFloat(site[7], 64)
+		chk(err)
+		control, err := strconv.ParseFloat(site[8], 64)
+		chk(err)
+		capacidad, err := strconv.ParseFloat(site[9], 64)
+		chk(err)
+		s := &embalse{
+			nombre:      site[0],
+			id:          site[1],
+			lat:         lat,
+			lng:         lng,
+			desborde:    desborde,
+			seguridad:   seguridad,
+			observacion: observacion,
+			ajuste:      ajuste,
+			control:     control,
+			capacidad:   capacidad,
+		}
+		sites[i] = s
 	}
 
 	// Lista de embalses específicos por nombre
@@ -104,118 +144,96 @@ func main() {
 	USGS_URL := "http://nwis.waterdata.usgs.gov/pr/nwis/uv/?cb_62616=on&format=rdb&site_no=%s&begin_date=%s&end_date=%s"
 
 	fmt.Println(header)
-	fmt.Printf("Actualizado: %s\n", today.String())
-	fmt.Println("Datos embalses en USGS...\n")
+	fmt.Printf("Actualizado: %s\n\n", today.String())
 
 	// Nombre columnas
 	fmt.Printf("%-15s %-8s %-8s %-16s %-12s  %-8s %-9s %-8s %-8s %-8s\n", "Embalse", "Nivel", "Cambio", "Fecha medida", "Estatus", "Desborde", "Seguridad", "Observ", "Ajuste", "Control")
 
 	// Concurrency
 	output := make(chan string, 11)
-	gophers := 0
 
-	for _, site := range sitesData {
-		// Site name
-		siteName := site[0]
-
+	// Benchmarking
+	start := time.Now()
+	for _, site := range sites {
 		// ¿Existe una lista específica de embalses?
 		if len(onlyTheseSites) > 0 {
-			if _, ok := onlyTheseSites[siteName]; !ok {
+			if _, ok := onlyTheseSites[site.nombre]; !ok {
 				continue
 			}
 		}
 
-		// ID del embalse
-		siteID := site[1]
-
 		// URL específico para info del embalse
-		urlFinal := fmt.Sprintf(USGS_URL, siteID, yesterday.Format("2006.1.2"), today.Format("2006.1.2"))
+		urlFinal := fmt.Sprintf(USGS_URL, site.id, yesterday.Format("2006.1.2"), today.Format("2006.1.2"))
 
-		// Get data concurrently
-		httpClient := &http.Client{
-			Timeout: 1 * time.Minute,
-		}
-		wg.Add(1)
-		gophers++
-		go getSiteData(site, urlFinal, httpClient, output)
+		go getSiteData(site, urlFinal, output)
 	}
 
-	var buf bytes.Buffer
-	for i := 0; i < gophers; i++ {
-		buf.WriteString(<-output)
+	for range sites {
+		fmt.Print(<-output)
 	}
-	fmt.Print(buf.String())
-	wg.Wait()
+	fmt.Printf("Took %.2fs\n", time.Since(start).Seconds())
 }
 
-func getSiteData(site []string, urlFinal string, httpClient *http.Client, output chan<- string) {
+func getSiteData(site *embalse, urlFinal string, output chan<- string) {
+	// Set network call timeout.
+	httpClient := &http.Client{
+		Timeout: 1 * time.Minute,
+	}
+
 	// Buscar datos
 	r, err := httpClient.Get(urlFinal)
 	chk(err)
 
 	// Convertirlos en slice
-	b, err := ioutil.ReadAll(r.Body)
+	levelReader := csv.NewReader(r.Body)
+	levelReader.Comma = '\t'
+	levelReader.Comment = '#'
+	allRows, err := levelReader.ReadAll()
 	chk(err)
 	defer r.Body.Close()
 
-	// Extraer todas las filas de datos ignorando comentarios
-	levelLines := strings.Split(string(b), "\n")
 	rows := make([][]string, 0)
-	for _, l := range levelLines {
-		if len(l) == 0 || l[0] == '#' {
-			continue
-		}
-		fields := strings.Split(l, "\t")
-		if fields[0] == "USGS" {
-			rows = append(rows, fields)
+	for _, r := range allRows {
+		if r[0] == "USGS" {
+			rows = append(rows, r)
 		}
 	}
 
 	// Obtener nivel del embalse hace 24 horas (aproximadamente)
 	// Cada fila representa un intervalo de 15 minutos.
 	// La fila 96 intervalos atrás contiene ese valor (aproximadamente).
-	firstLevel, err := strconv.ParseFloat(rows[0][4], 64)
+	site.nivelPrevio, err = strconv.ParseFloat(rows[0][4], 64)
 	chk(err)
 
 	// Última lectura del archivo
 	lastRow := rows[len(rows)-1]
 	measurementDate := lastRow[2]
-	lastLevel, err := strconv.ParseFloat(lastRow[4], 64)
+	site.nivelActual, err = strconv.ParseFloat(lastRow[4], 64)
 	chk(err)
 
-	diffLevels := lastLevel - firstLevel
+	diffLevels := site.nivelActual - site.nivelPrevio
 
 	// Determinar estatus del embalse
-	desborde, err := strconv.ParseFloat(site[4], 64)
-	chk(err)
-	seguridad, err := strconv.ParseFloat(site[5], 64)
-	chk(err)
-	observacion, err := strconv.ParseFloat(site[6], 64)
-	chk(err)
-	ajuste, err := strconv.ParseFloat(site[7], 64)
-	chk(err)
-	control, err := strconv.ParseFloat(site[8], 64)
-	chk(err)
 
 	// Status switch
-	status := "FUERA SERVICIO"
+	site.status = "FUERA SERVICIO"
 	switch {
-	case lastLevel >= desborde:
-		status = "DESBORDE"
-	case lastLevel >= seguridad:
-		status = "SEGURIDAD"
-	case lastLevel >= observacion:
-		status = "OBSERVACION"
-	case lastLevel >= ajuste:
-		status = "AJUSTE"
-	case lastLevel >= control:
-		status = "CONTROL"
+	case site.nivelActual >= site.desborde:
+		site.status = "DESBORDE"
+	case site.nivelActual >= site.seguridad:
+		site.status = "SEGURIDAD"
+	case site.nivelActual >= site.observacion:
+		site.status = "OBSERVACION"
+	case site.nivelActual >= site.ajuste:
+		site.status = "AJUSTE"
+	case site.nivelActual >= site.control:
+		site.status = "CONTROL"
 	}
 
 	// Mostrar información resumida del embalse:
 	// nombre, última lectura en metros, cambio en últimas 24 horas, fecha última lectura, estatus, estatus y sus niveles de referencia
-	output <- fmt.Sprintf("%-15s %-8.2f [%-5.2fm] %-16s %-12s  %-8.2f %-9.2f %-8.2f %-8.2f %-8.2f\n", site[0], lastLevel, diffLevels, measurementDate, status, desborde, seguridad, observacion, ajuste, control)
-	wg.Done()
+	output <- fmt.Sprintf("%-15s %-8.2f [%-5.2fm] %-16s %-12s  %-8.2f %-9.2f %-8.2f %-8.2f %-8.2f\n", site.nombre, site.nivelActual, diffLevels, measurementDate, site.status, site.desborde, site.seguridad, site.observacion, site.ajuste, site.control)
+	//wg.Done()
 }
 
 func chk(err error) {
