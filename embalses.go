@@ -1,6 +1,7 @@
 /*  Traducción en Go del script en Python por Edwood Ocasio: https://github.com/eocasio/embalses
 Inspirado por http://mate.uprh.edu/embalsespr/
 8/31/2015
+3/05/2019 - Refactor
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -29,7 +30,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	_ "os"
+	"os"
 	_ "runtime/pprof"
 	"strconv"
 	"strings"
@@ -52,35 +53,41 @@ type embalse struct {
 	status      string
 }
 
-//var wg sync.WaitGroup
-
 var header = `
-#########################################################################
-# Muestra cambio en nivel en ultimas 24 horas (aproximadamente)		#
-# Versión Go de Edwood Ocasio's: https://github.com/eocasio/embalses	#
-# Inspirado por http://mate.uprh.edu/embalsespr/			#
-# Copyright 2015 Jose E. Colon <jec.rod@gmail.com>			#
-#########################################################################
-# Datos provistos por el grupo CienciaDatosPR del Departamento de 	#
-# Matematicas de la Universidad de Puerto Rico en Humacao		#
-# Estos datos están sujetos a revisión por el USGS y no deben ser	#
-# tomados como oficiales o libres de errores de medición.		#
-#########################################################################
+Muestra cambio en nivel en ultimas 24 horas (aproximadamente)	
+Versión Go de Edwood Ocasio's: https://github.com/eocasio/embalses
+Inspirado por http://mate.uprh.edu/embalsespr/
+Copyright 2019 Jose E. Colon <jec.rod@gmail.com>
+
+Datos provistos por el grupo CienciaDatosPR del Departamento de 
+Matematicas de la Universidad de Puerto Rico en Humacao	
+Estos datos están sujetos a revisión por el USGS y no deben ser	
+tomados como oficiales o libres de errores de medición.	
 `
 
-var sitesRawData = `
-Carite,50039995,18.07524,-66.10683,544,542,539,537,536,8320
-Carraizo,50059000,18.32791,-66.01628,41.14,39.5,38.5,36.5,30,12000
-La Plata,50045000,18.343,-66.23607,51,43,39,38,31,26516
-Cidra,50047550,18.1969,-66.14072,403.05,401.05,400.05,399.05,398.05,4480
-Patillas,50093045,18.01774,-66.0185,67.07,66.16,64.33,60.52,59.45,9890
-Toa Vaca,50111210,18.10166,-66.48902,161,152,145,139,133,50650
-Rio Blanco,50076800,18.22389,-65.78142,28.75,26.5,24.25,22.5,18,3795
-Caonillas,50026140,18.27654,-66.65642,252,248,244,242,235,31730
-Fajardo,50071225,18.2969,-65.65858,52.5,48.3,43.4,37.5,26,4430
-Guajataca,50010800,18.39836,-66.9227,196,194,190,186,184,33340
-Cerrillos,50113950,18.07703,-66.57547,173.4,160,155.5,149.4,137.2,42600
-`
+var sites = []*embalse{
+	{"Carite","50039995",18.07524,-66.10683,544,542,539,537,536,8320, 0, 0, ""},
+	{"Carraizo","50059000",18.32791,-66.01628,41.14,39.5,38.5,36.5,30,12000, 0, 0, ""},
+	{"La Plata","50045000",18.343,-66.23607,51,43,39,38,31,26516, 0, 0, ""},
+	{"Cidra","50047550",18.1969,-66.14072,403.05,401.05,400.05,399.05,398.05,4480, 0, 0, ""},
+	{"Patillas","50093045",18.01774,-66.0185,67.07,66.16,64.33,60.52,59.45,9890, 0, 0, ""},
+	{"Toa Vaca","50111210",18.10166,-66.48902,161,152,145,139,133,50650, 0, 0, ""},
+	{"Rio Blanco","50076800",18.22389,-65.78142,28.75,26.5,24.25,22.5,18,3795, 0, 0, ""},
+	{"Caonillas","50026140",18.27654,-66.65642,252,248,244,242,235,31730, 0, 0, ""},
+	{"Fajardo","50071225",18.2969,-65.65858,52.5,48.3,43.4,37.5,26,4430, 0, 0, ""},
+	{"Guajataca","50010800",18.39836,-66.9227,196,194,190,186,184,33340, 0, 0, ""},
+	{"Cerrillos","50113950",18.07703,-66.57547,173.4,160,155.5,149.4,137.2,42600, 0, 0, ""},
+}
+
+func isValidSite(s string) bool {
+	valid := false
+	for _, site := range sites {
+		if strings.ToLower(s) == strings.ToLower(site.nombre) {
+			valid = true
+		}
+	}
+	return valid
+}
 
 func main() {
 	/*
@@ -90,50 +97,22 @@ func main() {
 		defer pprof.StopCPUProfile()
 	*/
 
-	sitesDataReader := csv.NewReader(strings.NewReader(sitesRawData))
-	sitesData, err := sitesDataReader.ReadAll()
-	chk(err)
-	sites := make([]*embalse, len(sitesData))
-	for i := range sitesData {
-		site := sitesData[i]
-		lat, err := strconv.ParseFloat(site[2], 64)
-		chk(err)
-		lng, err := strconv.ParseFloat(site[3], 64)
-		chk(err)
-		desborde, err := strconv.ParseFloat(site[4], 64)
-		chk(err)
-		seguridad, err := strconv.ParseFloat(site[5], 64)
-		chk(err)
-		observacion, err := strconv.ParseFloat(site[6], 64)
-		chk(err)
-		ajuste, err := strconv.ParseFloat(site[7], 64)
-		chk(err)
-		control, err := strconv.ParseFloat(site[8], 64)
-		chk(err)
-		capacidad, err := strconv.ParseFloat(site[9], 64)
-		chk(err)
-		s := &embalse{
-			nombre:      site[0],
-			id:          site[1],
-			lat:         lat,
-			lng:         lng,
-			desborde:    desborde,
-			seguridad:   seguridad,
-			observacion: observacion,
-			ajuste:      ajuste,
-			control:     control,
-			capacidad:   capacidad,
-		}
-		sites[i] = s
-	}
-
 	// Lista de embalses específicos por nombre
 	// Deje lista vacía para incluir todos los embalses.
-	// e.g.
-	// onlyTheseSites := map[string]bool{
-	//   "Carite": true,
-	// }
-	onlyTheseSites := make(map[string]bool)
+	siteCount := len(sites)
+	var onlyTheseSites map[string]bool
+	if len(os.Args) > 1 {
+		onlyTheseSites = make(map[string]bool)
+		for _, a := range os.Args[1:] {
+			la := strings.ToLower(a)
+			if isValidSite(la) {
+				onlyTheseSites[la] = true
+			}
+		}
+		if len(onlyTheseSites) > 0 {
+			siteCount = len(onlyTheseSites)
+		}
+	}
 
 	// Fechas de interés
 	today := time.Now()
@@ -144,20 +123,23 @@ func main() {
 	USGS_URL := "http://nwis.waterdata.usgs.gov/pr/nwis/uv/?cb_62616=on&format=rdb&site_no=%s&begin_date=%s&end_date=%s"
 
 	fmt.Println(header)
-	fmt.Printf("Actualizado: %s\n\n", today.String())
+	fmt.Printf("Actualizado: %s\n\n", today.Format("Jan 2, 2006 03:04:05"))
 
 	// Nombre columnas
 	fmt.Printf("%-15s %-8s %-8s %-16s %-12s  %-8s %-9s %-8s %-8s %-8s\n", "Embalse", "Nivel", "Cambio", "Fecha medida", "Estatus", "Desborde", "Seguridad", "Observ", "Ajuste", "Control")
 
-	// Concurrency
-	output := make(chan string, 11)
+	// Output channel
+	output := make(chan string, siteCount)
 
 	// Benchmarking
 	start := time.Now()
+
+	// Process sites
 	for _, site := range sites {
 		// ¿Existe una lista específica de embalses?
 		if len(onlyTheseSites) > 0 {
-			if _, ok := onlyTheseSites[site.nombre]; !ok {
+			ln := strings.ToLower(site.nombre)
+			if !onlyTheseSites[ln] {
 				continue
 			}
 		}
@@ -165,13 +147,17 @@ func main() {
 		// URL específico para info del embalse
 		urlFinal := fmt.Sprintf(USGS_URL, site.id, yesterday.Format("2006.1.2"), today.Format("2006.1.2"))
 
+		// Get site data concurrently
 		go getSiteData(site, urlFinal, output)
 	}
 
-	for range sites {
+	for i:=0; i<siteCount; i++ {
 		fmt.Print(<-output)
 	}
-	fmt.Printf("Took %.2fs\n", time.Since(start).Seconds())
+
+	fmt.Println(`
+Puede ver un embalse en específico, por ejemplo: embalses "La Plata"`)
+	fmt.Printf("\nTiempo: %v\n", time.Since(start))
 }
 
 func getSiteData(site *embalse, urlFinal string, output chan<- string) {
@@ -182,15 +168,21 @@ func getSiteData(site *embalse, urlFinal string, output chan<- string) {
 
 	// Buscar datos
 	r, err := httpClient.Get(urlFinal)
-	chk(err)
+	if err != nil {
+		output <- fmt.Sprintf("error descargando datos para %s: %s\n", site.nombre, err)
+		return
+	}
+	defer r.Body.Close()
 
 	// Convertirlos en slice
 	levelReader := csv.NewReader(r.Body)
 	levelReader.Comma = '\t'
 	levelReader.Comment = '#'
 	allRows, err := levelReader.ReadAll()
-	chk(err)
-	defer r.Body.Close()
+	if err != nil {
+		output <- fmt.Sprintf("error procesando datos para %s: %s\n", site.nombre, err)
+		return
+	}
 
 	rows := make([][]string, 0)
 	for _, r := range allRows {
@@ -203,19 +195,23 @@ func getSiteData(site *embalse, urlFinal string, output chan<- string) {
 	// Cada fila representa un intervalo de 15 minutos.
 	// La fila 96 intervalos atrás contiene ese valor (aproximadamente).
 	site.nivelPrevio, err = strconv.ParseFloat(rows[0][4], 64)
-	chk(err)
+	if err != nil {
+		output <- fmt.Sprintf("error procesando datos para %s: %s\n", site.nombre, err)
+		return
+	}
 
 	// Última lectura del archivo
 	lastRow := rows[len(rows)-1]
 	measurementDate := lastRow[2]
 	site.nivelActual, err = strconv.ParseFloat(lastRow[4], 64)
-	chk(err)
+	if err != nil {
+		output <- fmt.Sprintf("error procesando datos para %s: %s\n", site.nombre, err)
+		return
+	}
 
 	diffLevels := site.nivelActual - site.nivelPrevio
 
 	// Determinar estatus del embalse
-
-	// Status switch
 	site.status = "FUERA SERVICIO"
 	switch {
 	case site.nivelActual >= site.desborde:
@@ -231,13 +227,11 @@ func getSiteData(site *embalse, urlFinal string, output chan<- string) {
 	}
 
 	// Mostrar información resumida del embalse:
-	// nombre, última lectura en metros, cambio en últimas 24 horas, fecha última lectura, estatus, estatus y sus niveles de referencia
 	output <- fmt.Sprintf("%-15s %-8.2f [%-5.2fm] %-16s %-12s  %-8.2f %-9.2f %-8.2f %-8.2f %-8.2f\n", site.nombre, site.nivelActual, diffLevels, measurementDate, site.status, site.desborde, site.seguridad, site.observacion, site.ajuste, site.control)
-	//wg.Done()
 }
 
 func chk(err error) {
 	if err != nil {
-		log.Fatalf("ERROR: %s", err.Error())
+		log.Fatal(err)
 	}
 }
